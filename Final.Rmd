@@ -1,0 +1,325 @@
+<center>
+<font size="10"> ***Factors Affecting MLB Win Percentage*** </font> 
+<font size="5">
+By Prachi Gaur and Ojas Phadke<br/>
+CMSC320 Spring 2020<br/>
+</font>
+</center>
+
+<font size="5"> <br/>***Introduction:***<br/> </font>
+<font size="3"> In this tutorial, we will walk through the various steps of a complete data science pipeline. We will be using analytics to further understand baseball statistics, as well as present various strategies teams can use to increase their success. The overarching question that this tutorial is aiming to answer is, *“Which factors on the baseball field are most important and most correlated with a teams winning percentage?”* Sports in general tend to change over time in terms of how they are played, the pace of the game, how certain elements are valued, etc. Therefore, we will examine how important each of these factors have been throughout the history of the game and how each of their correlations to winning percentages have changed over time. This will allow us to see what elements of the game teams could examine in order to improve their winning statistics the most during a given time period. This will also allow us to see which factors/statistics are most correlated to wins in the present day. Using this data, we should be able to predict a specific team's win percentage in a season given other statistics for that specific season. The factors that we will be examining in this tutorial are Batting Averages, Stolen Bases, ERA (Earned Run Average), and Slugging Percentages.<br/> </font>
+
+<font size="5"> <br/>***Table of Contents:***<br/> </font>
+<font size="3"> [Data Curation](#datacur)<br/>
+[Data Parsing and Management](#datapar)<br/>
+[Exploratory Data Analysis](#eda)<br/>
+[Hypothesis Testing](#hyptest)<br/>
+[Machine Learning](#ml)<br/>
+[Conclusions](#conc)<br/> 
+</font>
+
+
+<div id="datacur"><font size="5"> <br/>***Data Curation:***<br/> </font></div> 
+<font size="3"> In this step, we will first load the database into our project, which can be done using the commands shown below. This database can be found [here](https://github.com/jknecht/baseball-archive-sqlite). In order to do this, make sure to have the database downloaded into a folder on your computer and connect to it using the path of where it is stored. In this step, be sure to also import relevant libraries that will be used throughout the project. These packages will be used in various steps along the data science pipeline. <br/> </font> 
+```{r setupdb, message=FALSE, warning=FALSE}
+# make sure you write the path to your sqlite database here
+db <- DBI::dbConnect(RSQLite::SQLite(), "C:/Users/prach/Dropbox/CMSC320/HW2/lahman2016.sqlite")
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(rvest)
+library(stringr)
+library(tidyr)
+library(magrittr)
+```
+<font size="3"> Now that the connection to the database has been set up, the data can be loaded into the project using the command below. We will provide an explanation as to why we included these specific attributes and values in the following section. We can also use "output.var = derive_table’’ to place the result of the SQL query into a new dataframe so that we can access it with R commands later on. <br/> Note: make sure to use quotations around the attributes, otherwise attributes such as “2B” and “3B” may not be recognized.
+</font>
+
+```{sql run_query, connection=db, output.var="derive_table", eval=TRUE}
+select "yearID", "teamID", "G", "W", "H", "AB", "2B", "3B", "HR", "SB", "ERA" from Teams where yearID > 1949
+```
+
+
+<div id="datapar"><font size="5"> <br/>***Data Parsing and Management:***<br/> </font></div>
+<font size="3"> Since we are examining Win Percentage, Batting Average, Stolen Bases, Slugging, and ERA, we need to make sure that we retrieve sufficient attributes to derive these statistics. The total stolen bases and ERA for each team is already given to us so we just need to calculate the win percentage, batting average, and slugging percentage for each team. To calculate the batting average, we need to divide the total “Hits” by the total “At-Bats” so we need the attributes “H” and “AB’’ from the table. To calculate win percentage, we need to divide the total number of wins by the total number of games played for each team so we need the attributes “G” and “W”. Calculating the slugging percentage is a bit trickier- for a deeper understanding of the formula being used, refer to this in-depth explanation: https://en.wikipedia.org/wiki/Slugging_percentage. In order to perform these opterations, we need the attributes “H”, “2B”, “3B”, “HR”, and “AB”. Also we will only be looking at data past 1950 so we can filter by that as well.
+
+Here, we are using the columns of each attribute to calculate the result and store it into a vector which can be placed into our final data_frame with the data calculated. Also, to calculate the number of singles, we will just subtract the number of doubles, triples, and home runs from the total hits so that we can use the number of singles in the calculation of our slugging percentage.
+
+</font>
+```{r, eval=TRUE}
+winp <- (derive_table$W/derive_table$G) * 100
+batavg <- derive_table$H/derive_table$AB
+singles <- (derive_table$H) - (derive_table$`2B` + derive_table$`3B` + derive_table$HR)
+slug_total <- singles + (2 * derive_table$`2B`) + (3 * derive_table$`3B`) + (4 * derive_table$HR)
+slugp <- slug_total/derive_table$AB
+stats <- data_frame(yearID = derive_table$yearID, teamID = derive_table$teamID, Win_Percentage = winp, AB = derive_table$AB, H = derive_table$H, Batting_Avg = batavg, Slugging_Percentage = slugp, HR = derive_table$HR, SB = derive_table$SB, ERA = derive_table$ERA)
+stats
+```
+
+<div id="eda"><font size="5"> <br/>***Exploratory Data Analysis:***<br/> </font></div>
+<font size="3">First, let us examine how each of the five statistics has changed over the course of MLB history. We will make graphs for each of the five factors and see how the league wide average has changed over time from 1950 to the present day. To do this, we must group by the year to get an average for all of the teams which competed in that season for each of the statistics. We will do this on the following pipeline 5 times and just change which statistic we are examining each time in order to graph each one with that statistic on the y-axis compared with time (yearID) on the x-axis.<br/></font>
+```{r, eval=TRUE}
+avg_ba <- stats %>% 
+  group_by(yearID) %>% 
+  summarize(Avg_League_BattingAvg = mean(Batting_Avg))
+
+avg_sb <- stats %>% 
+  group_by(yearID) %>% 
+  summarize(Avg_League_StolenBases = mean(SB))
+
+avg_era <- stats %>% 
+  group_by(yearID) %>% 
+  summarize(Avg_League_ERA = mean(ERA))
+
+avg_slug <- stats %>% 
+  group_by(yearID) %>% 
+  summarize(Avg_League_SluggingPercentage = mean(Slugging_Percentage))
+```
+
+<font size="3">Now that we have the average for each year in each of these four statistical categories, we can simply plot its value against time to see how the league wide average for each given stat has changed over time.</font>
+
+```{r, eval=TRUE}
+avg_ba %>% ggplot(mapping=aes(x=yearID, y=Avg_League_BattingAvg)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Average Batting Average") + 
+  ggtitle("MLB Average Batting Average Per Season: 1950-Present")
+```
+
+<font size="3">Based on this graph, it is tough to come to a conclusion on how much batting average has changed over time as there is so much fluctuation in the league average. There are lots of spikes and dips in the graphs but there is one noticeable trend from about the late 1960s to 2000 where the overall batting average continued to increase. However, the mean batting average has been on a decline as of more recent years so we can say that there is an overall decrease in the past 10 years. This could be for a variety of reasons such as better training and research to improve pitcher performance, which would make it much more difficult for batters.</font>
+
+```{r, eval=TRUE}
+avg_sb %>% ggplot(mapping=aes(x=yearID, y=Avg_League_StolenBases)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Average Stolen Bases") + 
+  ggtitle("MLB Average Stolen Bases Per Season: 1950-Present")
+```
+
+<font size="3">The case of stolen bases is not like batting average. In this graph we can clearly see that the number of stolen bases has been increasing through the years even though it seems to be on a downward trend as of lately. This could be due to the fact of improved athletic training resulting in more athletic and faster players allowing for stealing bases to become a more prominent part of the game.</font>
+
+```{r, eval=TRUE}
+avg_era %>% ggplot(mapping=aes(x=yearID, y=Avg_League_ERA)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Average ERA") + 
+  ggtitle("MLB Average ERA Per Season: 1950-Present")
+```
+
+<font size="3">Similar to stolen bases, we can see that ERA is something which has been changing over time. ERA measures how many runs a given team allows so teams want to try to minimize this stat as best as possible. We can see a large jump from the late 1960s to 2000 where the average ERA jumped from about 3.0 to 4.5, similar to the trend we noticed with mean batting average, suggesting that these two statistics may be related. This may be suggesting that the game was starting to focus more on scoring runs (offensive) rather than better fielding (defense) meaning that teams probably started investing in players who made big plays such as hitting home runs and stealing bases. Just like batting average however, the average ERA seems to be on a general decline in the present day.</font>
+
+```{r, eval=TRUE}
+avg_slug %>% ggplot(mapping=aes(x=yearID, y=Avg_League_SluggingPercentage)) + geom_line() + xlab("Year") + ylab("Average Slugging Percentage") + ggtitle("MLB Average Slugging Percentage Per Season: 1950-Present")
+```
+<font size="3">We can see that slugging percentage also has a very similar trend as ERA suggesting that slugging, ERA, and batting average may all be interrelated. Just like in average ERA and batting average, we can see a jump in Slugging as well from about the same time period from the late 1960s to 2000 where it jumped from about 0.34 to 0.435. Since slugging measures the productivity of batting, this also supports the suggestion made from the previous graph that the game was starting to become more focused towards scoring runs rather than preventing teams from scoring runs.
+
+
+Now since we have examined the trend of how certain aspects of the game have changed over time, it’s time to analyze how these factors have translated to Win Percentage and if they support the conclusions we drew about the changing of the game from the previous graphs depicting the general change in the statistic itself. We will look at how each stat translated to wins in ten year intervals starting from 1950 and do an analysis about each statistic based on the graphs for the decades in the hypothesis testing section. We will also group by team this time since we want to see how winning percentage is correlated to each stat. In order to do this, we must create new data frames which are split in 10 year intervals which can be done using the “filter” function as shown below. Once we have created a new data frame for each decade, we can proceed to graphing the stats against win percentage for that given decade. We have also named each data frame in accordance to its respective decade.
+</font>
+```{r, eval=TRUE}
+cut1950 <- filter(stats, yearID < 1960)
+cut1960 <- filter(stats, yearID > 1959 & yearID < 1970)
+cut1970 <- filter(stats, yearID > 1969 & yearID < 1980)
+cut1980 <- filter(stats, yearID > 1979 & yearID < 1990)
+cut1990 <- filter(stats, yearID > 1989 & yearID < 2000)
+cut2000 <- filter(stats, yearID > 1999 & yearID < 2010)
+cut2010 <- filter(stats, yearID > 2009)
+```
+<font size="3">Here are our graphs for Batting Average vs Win Percentage over time by decade:
+</font>
+```{r, eval=TRUE}
+cut1950 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 1950-1959") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1960 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 1960-1969") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1970 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 1970-1979") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1980 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 1980-1989") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1990 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 1990-1999") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2000 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 2000-2010") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2010 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_BA = mean(Batting_Avg)) %>% ggplot(mapping = aes(x=mean_BA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Mean Batting Average") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Mean 10 Year Batting Average vs Average Win Percentage 2010-Present") + geom_smooth(method = lm)
+```
+<font size="3"> <br/>Let’s take a look at how the mean batting average for teams has translated to wins over the decades. One would assume, the more a team is able to get on base and make hits (larger batting average), the greater the winning percentage. This seems to be the case with a very strong correlation from 1950 to 1980 based on the graphs. However, we can see in the graphs from 1980-1989 and 1990-1999, the slope of the regression lines seems to be noticeably decreasing implying a very low correlation with batting average to winning percentage. This leads us to believe that maybe getting on base and having a higher batting average during this time period was not as important and decisive to winning games. There could be a variety of reasons for this such as a major change in game strategy and how teams looked to win which requires more than just statistics to come to conclusions about. However, we can definitely say that something about how the game was played was different between 1980 and 1999. It also seems to only be during this time period as we can see in the graphs that from 2000 to present day, there is a positive correlation with batting average and winning percentage. <br/></font>
+<font size="3"><br/>Here are our graphs for Stolen Bases vs Win Percentage over time by decade:</font>
+
+```{r, eval=TRUE}
+cut1950 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 1950-1959") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1960 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 1960-1969") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1970 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 1970-1979") + geom_smooth(method = lm)
+```
+
+
+```{r, eval=TRUE}
+cut1980 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 1980-1989") + geom_smooth(method = lm)
+```
+
+
+```{r, eval=TRUE}
+cut1990 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 1990-1999") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2000 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 2000-2010") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2010 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_SB = mean(SB)) %>% ggplot(mapping = aes(x=mean_SB, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average Stolen Bases") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Stolen Bases vs Average Win Percentage 2010-Present") + geom_smooth(method = lm)
+```
+
+<font size="3">Now let’s take a look at how stolen bases and win percentage are correlated. Stealing bases is something which is a more subtle part of the game and does not have the same significance as directly getting on base or hitting home runs. It is simply to advance a runner’s position to maximize scoring opportunities and get closer to scoring runs. One would assume that the closer a runner is to scoring a run, the more advantageous it is for a team. This definitely seems to be the case between 1950-1959, 1970-1979, and 1980-1989. However, we can see that in the remaining graphs, there does not seem to be much of a correlation between winning percentage and stolen bases even though we know that the league average for stealing bases increases over time. As a matter of fact, from 2010-present, teams that stole more bases actually lost more games. One reason for this could be that stealing a base is a risky move and if not done successfully, it can be very detrimental for a team. We also saw that overall league batting average has been on a decline since 2000 which we assumed was a product of better pitcher training. Since, pitchers tend to have a large impact on getting runners out who are attempting to steal bases, their improvement in performance may have made it so that stealing bases as a whole may start becoming something which is discouraged in the game today.<br/>
+
+Here are our graphs for ERA vs Win Percentage over time by decade:
+</font>
+```{r, eval=TRUE}
+cut1950 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 1950-1959") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1960 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 1960-1969") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1970 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 1970-1979") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1980 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 1980-1989") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1990 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 1990-1999") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2000 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 2000-2010") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2010 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_ERA = mean(ERA)) %>% ggplot(mapping = aes(x=mean_ERA, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Average ERA") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year ERA vs Average Win Percentage 2010-Present") + geom_smooth(method = lm)
+```
+
+<font size="3">When comparing ERA with winning percentage, we can see that there is nothing particular in the trends or nothing noticeable which stands out in any of these graphs as we can see with the regression lines. Since teams want to minimize this statistic, it is pretty self-explanatory that the teams who are allowing the least amount of runs will be winning the most amount of games. One thing about the slopes of these graphs however is that they are much steeper and much more significant suggesting that minimizing ERA may have a huge impact and may be more important in the outcome of games and winning percentage than trying to maximize stolen bases or batting average. Based on this, it may be of the best interest for teams to try to draft or sign the best pitchers and fielders since those are the players who can help minimize a team’s ERA the most.<br/>
+
+<br/>Here are our graphs for Slugging Percentage vs Win Percentage over time by decade:</font>
+
+```{r, eval=TRUE}
+cut1950 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 1950-1959") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1960 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 1960-1969") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1970 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 1970-1979") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1980 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 1980-1989") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut1990 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 1990-1999") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2000 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 2000-2010") + geom_smooth(method = lm)
+```
+
+```{r, eval=TRUE}
+cut2010 %>% group_by(teamID) %>% summarize(mean_WP = mean(Win_Percentage), mean_Slug = mean(Slugging_Percentage)) %>% ggplot(mapping = aes(x=mean_Slug, y=mean_WP)) + geom_point(mapping = aes(color=teamID))  + xlab("Slugging Percentage") + ylab("Mean 10 Year Win Percentage(%) ") + ggtitle("Average 10 Year Slugging Percentage vs Average Win Percentage 2010-Present") + geom_smooth(method = lm)
+```
+<font size="3"><br/>
+Lastly, we will examine the graphs for slugging percentage and winning percentage throughout the decades. Contrary to ERA, slugging percentage is something which teams want to maximize as it measures the efficiency of batters. One would assume that the more efficient a team’s batters, the higher their chances of winning as we assumed with batting average. Since we know from the previous section that slugging and batting average are related, we can expect this same dip in correlation with slugging and winning percentage as we saw with batting average and winning percentage between 1980 and 2000. In the case of slugging, we can see that the slope of the regression line does decrease noticeable but not to the same extent as the regression line for batting average vs win percentage between 1980 and 2000. As of lately, the correlation between slugging and winning percentage has once again increased but the slope of the regression line is not as significant as the slope of the regression line when comparing ERA vs winning percentage. Thus, our assumption from our analysis from the previous graphs on ERA vs winning percentage still holds true that investing in pitchers and fielders may be of the best interest of teams trying to win the most.</font>
+
+<div id="hyptest"><font size="5"> <br/>***Hypothesis Testing:***<br/> </font></div> 
+<font size="3">In this section we will perform a few different hypothesis tests on our data. Hypothesis testing is using statistics to test an assumption about a given set of data. It is used to determine the plausibility of a hypothesis/claim made about the data.<br/>
+<br/>We will perform 4 different hypothesis tests using linear regression, to support whether the conclusions we drew regarding each factor in our Exploratory Data Analysis still hold valid. In simple terms, for our project, we are using correlation hypothesis testing, meaning that a low p value indicates that the null hypothesis should be rejected and a high p value indicates that it should not be rejected. For a more in-depth explanation of what hypothesis testing is and how it works, refer to [this link](https://courses.lumenlearning.com/boundless-statistics/chapter/hypothesis-testing-correlations/). In the case of our tutorial, the null hypothesis states that there is no correlation between each variable and winning percentages. The alternative hypothesis would be that there is a correlation between the two.<br/>
+</font>
+
+<font size="3"><br/>Is there a correlation between batting averages and win percentages?<br/></font>
+```{r hyp1, echo=TRUE}
+stats %>%
+  ggplot(aes(x=batavg, y=winp)) + geom_point() + geom_smooth(method=lm, colour="purple")+labs(x = "Batting Averages", y = "Winning Percentage")
+ 
+expected <- lm(batavg~winp, data=stats) %>%
+  broom::tidy()
+expected
+```
+
+<font size="3"><br/>In this graph there is an extremely small p value. This indicates that there is a correlation between winning percentage and batting averages.<br/>
+
+<br/>Is there a correlation between stolen bases and win percentages?<br/></font>
+```{r hyp2, echo=TRUE}
+stats %>%
+  ggplot(aes(x=SB, y=winp)) + geom_point() + geom_smooth(method=lm, colour="purple") + labs(x = "Stolen Bases",y = "Winning Percentage")
+ 
+expected <- lm(SB~winp, data=stats) %>%
+  broom::tidy()
+expected
+```
+
+<font size="3">With such a small p value, we would reject the null hypothesis, indicating that there is in fact a positive correlation between stolen bases and winning percentages. However, by looking at the regression plot, the correlation seems to be weak. 
+
+<br/>Is there a correlation between ERA and win percentages?<br/></font>
+```{r hyp3, echo=TRUE}
+stats %>%
+  ggplot(aes(x=ERA, y=winp)) + geom_point() + geom_smooth(method=lm, colour="purple") + labs(x = "ERA",y = "Winning Percentage")
+ 
+expected <- lm(ERA~winp, data=stats) %>%
+  broom::tidy()
+expected
+```
+
+<font size="3">With such a small p value, we would reject the null hypothesis, indicating that there is in fact a negative correlation between ERA and winning percentages. 
+
+<br/>Is there a correlation between slugging percentages and win percentages?<br/></font>
+```{r hyp4, echo=TRUE}
+stats %>%
+  ggplot(aes(x=slugp, y=winp)) + geom_point() + geom_smooth(method=lm, colour="purple") + labs(x = "Slugging Percentage",y = "Winning Percentage")
+ 
+expected <- lm(slugp~winp, data=stats) %>%
+  broom::tidy()
+expected
+```
+<font size="3">With such a small p value, we would reject the null hypothesis, indicating that there is in fact a positive correlation between stolen bases and winning percentages. However, by looking at the regression plot, the correlation seems to be weak.<br/>
+
+Overall, from performing these hypothesis tests using linear regression models, we can see which factors had stronger correlations with the winning percentage. The two factors with the strongest correlations were ERA and Slugging Percentage, with ERA having the greatest slope value. This indicates that there is a strong relationship between winning percentage and ERA, indicating that it may be possible to predict winning percentage using ERA. 
+</font>
+
+<div id="ml"><font size="5"> <br/>***Machine Learning:***<br/> </font></div> 
+<font size="3">Machine Learning is used to perform predictive analytics on data. It is useful to make future predictions and for tracking data. We will be performing a logistic linear regression on the 4 different factors against winning percentage. This is a way of estimating class probability.  
+</font>
+```{r ml, echo=TRUE}
+fit <- glm(winp ~ batavg + SB + ERA + slugp, data=stats)
+fit %>% 
+  broom::tidy() %>%
+  knitr::kable(digits=4, "html")
+```
+<font size = "3">A few main takeaways we can have by looking at this logistic regression table is that Slugging Percentage has the highest postive slope against winning percentage, and ERA has the most negative slope against winning percentage. This complements our conclusions from the previous two sections as well. <br/></font>
+<div id="conc"><font size="5"> <br/>***Conclusions:***<br/> </font></div> 
+<font size = "3">To answer our original question, through exploratory data analysis and hypothesis testing we found that ERA had the strongest correlation to winning percentage. This means that the more teams were able to limit the runs scored on them, the more they were able to win. This also means that if teams are trying to win games at a high rate, they should focus on building a defensive styled team which is outstanding in pitching and fielding to give them the best chance to win. If teams are able to do this, the statistics consistently show that they will be able to drastically increase their winning percentage due to the very high correlation in ERA and winning percentage. 
+<br/>
+We also found that batting average and slugging percentage had a positive correlation but it was not as strong as the correlation between ERA and winning percentage which supports the statement that if teams are trying to win they should focus on defense and fielding primarily before working on the offense of their team such as strong hitters and runners. Originally, we assumed that stolen bases would also have a strong positive correlation to winning percentage but we were surprised to find out that this was not the case. Early on in baseball history, we saw that it had a positive correlation to winning percentage but we also saw that correlation decrease over the years. Then during hypothesis testing, we saw that stealing bases in fact does not have as much of an impact on winning percentage compared to ERA, batting average, and slugging percentage which supported the assumptions made at the end of our exploratory data analysis.
+<br/></font>
